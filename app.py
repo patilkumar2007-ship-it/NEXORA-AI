@@ -26,7 +26,7 @@ domain = st.sidebar.selectbox("Select simulation", [
     "Emergency Planning"
 ])
 st.sidebar.divider()
-st.sidebar.caption("Prototype v0.3")
+st.sidebar.caption("Prototype v0.4")
 
 st.title(domain)
 st.write("Change the inputs to explore a scenario. Results are illustrative planning estimates, not live operational predictions.")
@@ -49,8 +49,8 @@ def comparison_table(rows):
 if domain == "Traffic & Transportation":
     st.subheader("🚦 Traffic capacity planner")
     a, b = st.columns(2)
-    demand = a.slider("Traffic demand (%)", 10, 100, 65)
-    capacity = b.slider("Road capacity (%)", 10, 120, 75)
+    demand = a.slider("Traffic demand (%)", 10, 100, 65, key="traffic_demand")
+    capacity = b.slider("Road capacity (%)", 10, 120, 75, key="traffic_capacity")
     utilization = round(demand / capacity * 100) if capacity else 0
     gap = max(0, demand - capacity)
     metrics([("Traffic demand", f"{demand}%","Selected demand"),("Road capacity",f"{capacity}%","Available capacity"),("Capacity utilization",f"{utilization}%","Demand divided by capacity")])
@@ -62,8 +62,8 @@ if domain == "Traffic & Transportation":
 elif domain == "Business & Inventory":
     st.subheader("📦 Inventory and demand planner")
     a,b = st.columns(2)
-    stock = a.slider("Available inventory (units)",0,5000,400)
-    demand = b.slider("Expected demand (units)",0,5000,550)
+    stock = a.slider("Available inventory (units)",0,5000,400, key="inventory_stock")
+    demand = b.slider("Expected demand (units)",0,5000,550, key="inventory_demand")
     fulfilled = min(stock,demand)
     fill_rate = round(fulfilled/demand*100) if demand else 100
     shortage = max(0,demand-stock)
@@ -78,13 +78,13 @@ elif domain == "Business & Inventory":
 elif domain == "Logistics & Delivery":
     st.subheader("🚚 Fleet and delivery planner")
     a,b,c = st.columns(3)
-    orders = a.slider("Daily delivery orders",1,3000,500,step=25)
-    vehicles = b.slider("Available vehicles",1,150,20)
-    capacity_each = c.slider("Deliveries per vehicle per day",1,150,30)
+    orders = a.slider("Daily delivery orders",1,3000,500,step=25, key="log_orders")
+    vehicles = b.slider("Available vehicles",1,150,20, key="log_vehicles")
+    capacity_each = c.slider("Deliveries per vehicle per day",1,150,30, key="log_capacity")
     d,e,f = st.columns(3)
-    distance = d.slider("Average distance per delivery (km)",1,150,20)
-    cost_km = e.slider("Operating cost per km (₹)",1,150,18)
-    hours = f.slider("Operating hours per vehicle",1,24,8)
+    distance = d.slider("Average distance per delivery (km)",1,150,20, key="log_distance")
+    cost_km = e.slider("Operating cost per km (₹)",1,150,18, key="log_cost")
+    hours = f.slider("Operating hours per vehicle",1,24,8, key="log_hours")
     fleet_capacity = vehicles * capacity_each
     vehicles_needed = (orders + capacity_each - 1) // capacity_each
     utilization = round(orders/fleet_capacity*100) if fleet_capacity else 0
@@ -100,12 +100,12 @@ elif domain == "Logistics & Delivery":
 elif domain == "Energy Management":
     st.subheader("⚡ Energy demand and supply planner")
     a,b,c = st.columns(3)
-    demand = a.slider("Daily energy demand (kWh)",100,100000,12000,step=100)
-    supply = b.slider("Available energy supply (kWh)",100,100000,14000,step=100)
-    renewable = c.slider("Renewable share of available supply (%)",0,100,35)
+    demand = a.slider("Daily energy demand (kWh)",100,100000,12000,step=100, key="energy_demand")
+    supply = b.slider("Available energy supply (kWh)",100,100000,14000,step=100, key="energy_supply")
+    renewable = c.slider("Renewable share of available supply (%)",0,100,35, key="energy_renewable")
     d,e = st.columns(2)
-    reduction = d.slider("Demand reduction target (%)",0,60,10)
-    tariff = e.slider("Grid electricity tariff (₹/kWh)",1,50,8)
+    reduction = d.slider("Demand reduction target (%)",0,60,10, key="energy_reduction")
+    tariff = e.slider("Grid electricity tariff (₹/kWh)",1,50,8, key="energy_tariff")
     adjusted = round(demand*(1-reduction/100))
     renewable_energy = round(min(supply,adjusted)*renewable/100)
     grid_energy = max(0,adjusted-renewable_energy)
@@ -121,13 +121,13 @@ elif domain == "Energy Management":
 elif domain == "Emergency Planning":
     st.subheader("🚨 Emergency response capacity planner")
     a,b,c = st.columns(3)
-    incidents = a.slider("Expected incidents",1,1000,80)
-    teams = b.slider("Available response teams",1,200,15)
-    team_capacity = c.slider("Incidents handled per team",1,50,5)
+    incidents = a.slider("Expected incidents",1,1000,80, key="em_incidents")
+    teams = b.slider("Available response teams",1,200,15, key="em_teams")
+    team_capacity = c.slider("Incidents handled per team",1,50,5, key="em_team_capacity")
     d,e,f = st.columns(3)
-    response_time = d.slider("Average response time (minutes)",1,180,25)
-    resources = e.slider("Available resource units",1,10000,300)
-    resources_each = f.slider("Resource units needed per incident",1,50,3)
+    response_time = d.slider("Average response time (minutes)",1,180,25, key="em_response_time")
+    resources = e.slider("Available resource units",1,10000,300, key="em_resources")
+    resources_each = f.slider("Resource units needed per incident",1,50,3, key="em_resources_each")
     capacity = teams*team_capacity
     uncovered = max(0,incidents-capacity)
     team_coverage = min(100,round(capacity/incidents*100))
@@ -141,8 +141,126 @@ elif domain == "Emergency Planning":
     else: st.success("Selected teams and resources cover the scenario.")
     st.info("Planning idea: stage teams near risk zones and maintain reserve supplies. This is a simulation, not a live emergency dispatch system.")
 
+
+# --- v0.4: Scenario persistence and PDF export ---
+import json
+from pathlib import Path
+from datetime import datetime
+from io import BytesIO
+
+SCENARIO_FILE = Path(__file__).parent / "saved_scenarios.json"
+
+def read_scenarios():
+    try:
+        if SCENARIO_FILE.exists():
+            data = json.loads(SCENARIO_FILE.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        st.sidebar.warning("Saved scenarios file could not be read.")
+    return {}
+
+def write_scenarios(data):
+    SCENARIO_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+# Every slider uses an explicit key so a saved scenario can restore its inputs.
+scenario_store = read_scenarios()
+active_keys = {
+    "Traffic & Transportation": ["traffic_demand", "traffic_capacity"],
+    "Business & Inventory": ["inventory_stock", "inventory_demand"],
+    "Logistics & Delivery": ["log_orders", "log_vehicles", "log_capacity", "log_distance", "log_cost", "log_hours"],
+    "Energy Management": ["energy_demand", "energy_supply", "energy_renewable", "energy_reduction", "energy_tariff"],
+    "Emergency Planning": ["em_incidents", "em_teams", "em_team_capacity", "em_response_time", "em_resources", "em_resources_each"],
+}
+current_keys = active_keys[domain]
+
+st.sidebar.divider()
+st.sidebar.subheader("💾 Scenario Library")
+saved_for_domain = {
+    name: item for name, item in scenario_store.items()
+    if item.get("domain") == domain
+}
+if saved_for_domain:
+    selected_saved = st.sidebar.selectbox("Saved scenarios", list(saved_for_domain.keys()), key="scenario_to_load")
+    if st.sidebar.button("Load selected scenario", use_container_width=True):
+        for key, value in saved_for_domain[selected_saved].get("inputs", {}).items():
+            st.session_state[key] = value
+        st.rerun()
+else:
+    st.sidebar.caption("No saved scenarios for this module yet.")
+
+scenario_name = st.text_input("Scenario name", placeholder="e.g. High demand - October")
+save_col, pdf_col = st.columns(2)
+if save_col.button("💾 Save current scenario", use_container_width=True):
+    if not scenario_name.strip():
+        st.warning("Enter a scenario name before saving.")
+    else:
+        snapshot = {key: st.session_state.get(key) for key in current_keys if key in st.session_state}
+        scenario_store[scenario_name.strip()] = {
+            "domain": domain,
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "inputs": snapshot,
+        }
+        try:
+            write_scenarios(scenario_store)
+            st.success(f"Scenario '{scenario_name.strip()}' saved on this computer.")
+        except OSError as exc:
+            st.error(f"Could not save scenario: {exc}")
+
+def build_pdf_report():
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    except ImportError:
+        return None
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=42, leftMargin=42, topMargin=42, bottomMargin=42)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph("NEXORA AI — Simulation Report", styles["Title"]),
+        Paragraph(f"Module: {domain}", styles["Heading2"]),
+        Paragraph(f"Generated: {datetime.now().strftime('%d %b %Y, %H:%M')}", styles["Normal"]),
+        Spacer(1, 18),
+        Paragraph("Scenario inputs", styles["Heading2"]),
+    ]
+    table_data = [["Input", "Selected value"]]
+    for key in current_keys:
+        if key in st.session_state:
+            table_data.append([key.replace("_", " ").title(), str(st.session_state[key])])
+    report_table = Table(table_data, colWidths=[260, 220])
+    report_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#203864")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("PADDING", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+    ]))
+    story.extend([report_table, Spacer(1, 16),
+        Paragraph("Note: Results are illustrative planning estimates and are not live operational predictions.", styles["Italic"])])
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+if pdf_col.button("📄 Prepare PDF report", use_container_width=True):
+    pdf_bytes = build_pdf_report()
+    if pdf_bytes is None:
+        st.error("PDF library missing. Run: pip install reportlab")
+    else:
+        st.session_state["nexora_pdf_report"] = pdf_bytes
+        st.success("Your report is ready below.")
+
+if "nexora_pdf_report" in st.session_state:
+    st.download_button(
+        "⬇️ Download simulation report",
+        data=st.session_state["nexora_pdf_report"],
+        file_name=f"nexora_{domain.lower().replace(' & ', '_').replace(' ', '_')}_report.pdf",
+        mime="application/pdf",
+        use_container_width=True,
+    )
+
 st.divider()
 left,right = st.columns(2)
 left.markdown("**NEXORA AI**")
 left.caption("Multi-Domain Scenario Simulation Platform")
-right.caption("Prototype v0.3 | Illustrative planning model")
+right.caption("Prototype v0.4 | Illustrative planning model")
