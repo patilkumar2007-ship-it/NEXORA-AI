@@ -26,7 +26,7 @@ domain = st.sidebar.selectbox("Select simulation", [
     "Emergency Planning"
 ])
 st.sidebar.divider()
-st.sidebar.caption("Prototype v0.4")
+st.sidebar.caption("Prototype v0.5")
 
 st.title(domain)
 st.write("Change the inputs to explore a scenario. Results are illustrative planning estimates, not live operational predictions.")
@@ -263,4 +263,88 @@ st.divider()
 left,right = st.columns(2)
 left.markdown("**NEXORA AI**")
 left.caption("Multi-Domain Scenario Simulation Platform")
-right.caption("Prototype v0.4 | Illustrative planning model")
+right.caption("Prototype v0.5 | Decision intelligence")
+
+
+# --- v0.5: Decision intelligence dashboard, recommendations and comparison ---
+st.divider()
+st.header("📊 NEXORA AI | Decision Intelligence")
+st.caption("A live overview of the current simulation and saved planning scenarios.")
+
+domain_labels = [
+    "Traffic & Transportation", "Business & Inventory",
+    "Logistics & Delivery", "Energy Management", "Emergency Planning"
+]
+saved_counts = {
+    label: sum(1 for item in scenario_store.values() if item.get("domain") == label)
+    for label in domain_labels
+}
+overview_cols = st.columns(5)
+for col, label in zip(overview_cols, domain_labels):
+    col.metric(label, f"{saved_counts[label]} saved", "scenarios in library")
+
+# Recommendations are rule-based and transparent; no external AI service is implied.
+recommendations = []
+if domain == "Traffic & Transportation":
+    if demand > capacity:
+        recommendations.append(f"Demand exceeds road capacity by {demand-capacity} percentage points. Test diversion, staggered travel, or added capacity.")
+    else:
+        recommendations.append("Demand is within selected capacity. Monitor peak-hour variation before increasing road capacity.")
+    recommendations.append("Compare a second demand level to identify when congestion first appears.")
+elif domain == "Business & Inventory":
+    if shortage:
+        recommendations.append(f"Plan replenishment of at least {shortage:,} units to meet the entered demand.")
+    elif surplus:
+        recommendations.append(f"Review purchasing: {surplus:,} units may remain after the entered demand.")
+    else:
+        recommendations.append("Stock exactly matches demand. Keep a small safety-stock policy if demand is uncertain.")
+    recommendations.append("Run low-, expected-, and high-demand scenarios before placing a purchase order.")
+elif domain == "Logistics & Delivery":
+    if orders > fleet_capacity:
+        recommendations.append(f"Fleet capacity is short by {orders-fleet_capacity:,} deliveries. Add vehicles or increase route capacity.")
+    else:
+        recommendations.append("Current fleet capacity covers the entered orders. Review utilization and driver workload.")
+    recommendations.append(f"Estimated operating spend is ₹{total_cost:,.0f}; test route grouping to reduce distance.")
+elif domain == "Energy Management":
+    if shortage:
+        recommendations.append(f"Adjusted demand exceeds supply by {shortage:,} kWh. Increase supply or test a larger demand-reduction target.")
+    else:
+        recommendations.append(f"Supply covers adjusted demand with {supply-adjusted:,} kWh spare.")
+    recommendations.append(f"Estimated grid cost is ₹{grid_cost:,.0f}. Test shifting flexible loads and changing renewable share.")
+elif domain == "Emergency Planning":
+    if uncovered or resource_coverage < 100:
+        recommendations.append(f"Plan for {uncovered} incidents beyond team capacity and improve resource coverage from {resource_coverage}%.")
+    else:
+        recommendations.append("Entered teams and resources cover the scenario. Validate assumptions with local response planners.")
+    recommendations.append("Test a higher-incident scenario to understand reserve-team and resource requirements.")
+
+st.subheader("🧠 Smart recommendations")
+for item in recommendations:
+    st.info(item)
+st.caption("Recommendations are generated from transparent scenario rules, not a trained AI model or live data.")
+
+st.subheader("⚖️ Compare saved scenarios")
+comparison_candidates = {
+    name: item for name, item in scenario_store.items()
+    if item.get("domain") == domain
+}
+if len(comparison_candidates) >= 2:
+    compare_names = list(comparison_candidates.keys())
+    ca, cb = st.columns(2)
+    first_name = ca.selectbox("Scenario A", compare_names, key="v05_compare_a")
+    second_options = [name for name in compare_names if name != first_name]
+    second_name = cb.selectbox("Scenario B", second_options, key="v05_compare_b")
+    first_inputs = comparison_candidates[first_name].get("inputs", {})
+    second_inputs = comparison_candidates[second_name].get("inputs", {})
+    compare_rows = []
+    for input_key in active_keys[domain]:
+        compare_rows.append({
+            "Input": input_key.replace("_", " ").title(),
+            "Scenario A": first_inputs.get(input_key, "—"),
+            "Scenario B": second_inputs.get(input_key, "—"),
+        })
+    st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+else:
+    st.caption("Save at least two scenarios in this module to compare their inputs here.")
+
+st.caption("v0.5 | Decision-support prototype • Validate assumptions before real-world use.")
