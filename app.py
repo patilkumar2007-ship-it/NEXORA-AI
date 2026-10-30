@@ -26,7 +26,7 @@ domain = st.sidebar.selectbox("Select simulation", [
     "Emergency Planning"
 ])
 st.sidebar.divider()
-st.sidebar.caption("Prototype v0.5")
+st.sidebar.caption("Prototype v0.6")
 
 st.title(domain)
 st.write("Change the inputs to explore a scenario. Results are illustrative planning estimates, not live operational predictions.")
@@ -263,7 +263,7 @@ st.divider()
 left,right = st.columns(2)
 left.markdown("**NEXORA AI**")
 left.caption("Multi-Domain Scenario Simulation Platform")
-right.caption("Prototype v0.5 | Decision intelligence")
+right.caption("Prototype v0.6 | Cloud-ready decision intelligence")
 
 
 # --- v0.5: Decision intelligence dashboard, recommendations and comparison ---
@@ -348,3 +348,103 @@ else:
     st.caption("Save at least two scenarios in this module to compare their inputs here.")
 
 st.caption("v0.5 | Decision-support prototype • Validate assumptions before real-world use.")
+
+
+# --- v0.6: Supabase cloud sync (optional until credentials are configured) ---
+import os
+
+def get_supabase_config():
+    try:
+        return st.secrets["supabase"]["url"], st.secrets["supabase"]["anon_key"]
+    except Exception:
+        return os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY")
+
+supabase_url, supabase_anon_key = get_supabase_config()
+cloud_ready = bool(supabase_url and supabase_anon_key)
+
+if "nexora_supabase" not in st.session_state:
+    st.session_state["nexora_supabase"] = None
+if "nexora_cloud_user" not in st.session_state:
+    st.session_state["nexora_cloud_user"] = None
+
+st.sidebar.divider()
+st.sidebar.subheader("☁️ Cloud Account")
+if not cloud_ready:
+    st.sidebar.caption("Cloud sync setup pending.")
+    st.sidebar.info("Add Supabase URL and anon key in Streamlit secrets to enable cloud sync.")
+else:
+    try:
+        from supabase import create_client
+        if st.session_state["nexora_supabase"] is None:
+            st.session_state["nexora_supabase"] = create_client(supabase_url, supabase_anon_key)
+        supabase_client = st.session_state["nexora_supabase"]
+        if st.session_state["nexora_cloud_user"] is None:
+            with st.sidebar.form("nexora_cloud_login"):
+                cloud_email = st.text_input("Email", key="cloud_email")
+                cloud_password = st.text_input("Password", type="password", key="cloud_password")
+                login_col, signup_col = st.columns(2)
+                login_clicked = login_col.form_submit_button("Sign in")
+                signup_clicked = signup_col.form_submit_button("Sign up")
+            if login_clicked or signup_clicked:
+                try:
+                    if not cloud_email.strip() or not cloud_password:
+                        st.sidebar.error("Enter email and password.")
+                    elif signup_clicked:
+                        auth_result = supabase_client.auth.sign_up({"email": cloud_email.strip(), "password": cloud_password})
+                        if auth_result.user:
+                            st.sidebar.success("Account created. Check your email if confirmation is enabled, then sign in.")
+                    else:
+                        auth_result = supabase_client.auth.sign_in_with_password({"email": cloud_email.strip(), "password": cloud_password})
+                        st.session_state["nexora_cloud_user"] = auth_result.user
+                        st.rerun()
+                except Exception as exc:
+                    st.sidebar.error(f"Authentication failed: {exc}")
+        else:
+            cloud_user = st.session_state["nexora_cloud_user"]
+            st.sidebar.success(f"Signed in: {cloud_user.email}")
+            if st.sidebar.button("Sign out", use_container_width=True):
+                try:
+                    supabase_client.auth.sign_out()
+                finally:
+                    st.session_state["nexora_cloud_user"] = None
+                    st.rerun()
+
+            st.sidebar.caption("Cloud scenarios are private to your signed-in account.")
+            if st.sidebar.button("☁️ Save current scenario to cloud", use_container_width=True):
+                if not scenario_name.strip():
+                    st.sidebar.warning("Enter a scenario name above first.")
+                else:
+                    try:
+                        cloud_user_id = cloud_user.id
+                        cloud_snapshot = {key: st.session_state.get(key) for key in current_keys if key in st.session_state}
+                        supabase_client.table("scenarios").insert({
+                            "user_id": cloud_user_id,
+                            "name": scenario_name.strip(),
+                            "domain": domain,
+                            "inputs": cloud_snapshot,
+                        }).execute()
+                        st.sidebar.success("Scenario saved to your cloud account.")
+                    except Exception as exc:
+                        st.sidebar.error(f"Cloud save failed: {exc}")
+
+            if st.sidebar.button("☁️ Refresh cloud scenarios", use_container_width=True):
+                try:
+                    cloud_result = supabase_client.table("scenarios").select("id,name,domain,inputs,created_at").eq("user_id", cloud_user.id).eq("domain", domain).order("created_at", desc=True).execute()
+                    st.session_state["nexora_cloud_scenarios"] = cloud_result.data or []
+                except Exception as exc:
+                    st.sidebar.error(f"Could not fetch cloud scenarios: {exc}")
+
+            cloud_items = st.session_state.get("nexora_cloud_scenarios", [])
+            if cloud_items:
+                cloud_labels = {f'{item["name"]} • {item.get("created_at", "")[:10]}': item for item in cloud_items}
+                cloud_choice = st.sidebar.selectbox("Cloud scenarios", list(cloud_labels.keys()), key="nexora_cloud_choice")
+                if st.sidebar.button("Load cloud scenario", use_container_width=True):
+                    for key, value in cloud_labels[cloud_choice].get("inputs", {}).items():
+                        st.session_state[key] = value
+                    st.rerun()
+            else:
+                st.sidebar.caption("No cloud scenarios loaded. Select Refresh cloud scenarios.")
+    except ImportError:
+        st.sidebar.warning("Install the Supabase client: pip install supabase")
+    except Exception as exc:
+        st.sidebar.error(f"Cloud connection error: {exc}")
