@@ -28,6 +28,13 @@ domain = st.sidebar.selectbox("Select simulation", [
 st.sidebar.divider()
 st.sidebar.caption("Prototype v0.6")
 
+# Apply queued scenario inputs before Streamlit creates the widgets.
+# This avoids modifying widget state after the corresponding widget has been instantiated.
+pending_inputs = st.session_state.pop("nexora_pending_inputs", None)
+if isinstance(pending_inputs, dict):
+    for input_key, input_value in pending_inputs.items():
+        st.session_state[input_key] = input_value
+
 st.title(domain)
 st.write("Change the inputs to explore a scenario. Results are illustrative planning estimates, not live operational predictions.")
 
@@ -107,16 +114,18 @@ elif domain == "Energy Management":
     reduction = d.slider("Demand reduction target (%)",0,60,10, key="energy_reduction")
     tariff = e.slider("Grid electricity tariff (₹/kWh)",1,50,8, key="energy_tariff")
     adjusted = round(demand*(1-reduction/100))
-    renewable_energy = round(min(supply,adjusted)*renewable/100)
-    grid_energy = max(0,adjusted-renewable_energy)
-    shortage = max(0,adjusted-supply)
+    renewable_available = round(supply * renewable / 100)
+    grid_available = max(0, supply - renewable_available)
+    renewable_energy = min(adjusted, renewable_available)
+    grid_energy = min(max(0, adjusted - renewable_energy), grid_available)
+    shortage = max(0, adjusted - renewable_energy - grid_energy)
     grid_cost = grid_energy*tariff
     metrics([("Adjusted demand",f"{adjusted:,} kWh","After demand reduction"),("Supply gap",f"{shortage:,} kWh","Demand not covered by total supply"),("Renewable contribution",f"{renewable_energy:,} kWh","Estimated renewable energy used"),("Estimated grid cost",f"₹{grid_cost:,.0f}","Grid energy multiplied by tariff")])
     bar_chart(["Renewable","Grid"],[renewable_energy,grid_energy],"Estimated energy mix","Energy (kWh)")
     comparison_table([{"Metric":"Original demand (kWh)","Value":demand},{"Metric":"Adjusted demand (kWh)","Value":adjusted},{"Metric":"Available supply (kWh)","Value":supply},{"Metric":"Renewable energy used (kWh)","Value":renewable_energy},{"Metric":"Grid energy required (kWh)","Value":grid_energy},{"Metric":"Energy shortfall (kWh)","Value":shortage},{"Metric":"Estimated grid cost (₹)","Value":grid_cost}])
     if shortage: st.error(f"Supply gap of {shortage:,} kWh remains. Increase supply or reduce demand further.")
     else: st.success(f"Supply covers adjusted demand with {supply-adjusted:,} kWh spare.")
-    st.info("Planning idea: shift flexible loads away from peak hours and increase renewable availability. This uses a simplified flat-tariff estimate.")
+    st.info(f"Planning idea: shift flexible loads away from peak hours and increase renewable availability. Renewable supply available: {renewable_available:,} kWh; grid supply available: {grid_available:,} kWh. This uses a simplified flat-tariff estimate.")
 
 elif domain == "Emergency Planning":
     st.subheader("🚨 Emergency response capacity planner")
@@ -182,8 +191,7 @@ saved_for_domain = {
 if saved_for_domain:
     selected_saved = st.sidebar.selectbox("Saved scenarios", list(saved_for_domain.keys()), key="scenario_to_load")
     if st.sidebar.button("Load selected scenario", use_container_width=True):
-        for key, value in saved_for_domain[selected_saved].get("inputs", {}).items():
-            st.session_state[key] = value
+        st.session_state["nexora_pending_inputs"] = saved_for_domain[selected_saved].get("inputs", {})
         st.rerun()
 else:
     st.sidebar.caption("No saved scenarios for this module yet.")
@@ -439,8 +447,7 @@ else:
                 cloud_labels = {f'{item["name"]} • {item.get("created_at", "")[:10]}': item for item in cloud_items}
                 cloud_choice = st.sidebar.selectbox("Cloud scenarios", list(cloud_labels.keys()), key="nexora_cloud_choice")
                 if st.sidebar.button("Load cloud scenario", use_container_width=True):
-                    for key, value in cloud_labels[cloud_choice].get("inputs", {}).items():
-                        st.session_state[key] = value
+                    st.session_state["nexora_pending_inputs"] = cloud_labels[cloud_choice].get("inputs", {})
                     st.rerun()
             else:
                 st.sidebar.caption("No cloud scenarios loaded. Select Refresh cloud scenarios.")
