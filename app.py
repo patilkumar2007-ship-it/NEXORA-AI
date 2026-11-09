@@ -367,6 +367,13 @@ def get_supabase_config():
     except Exception:
         return os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY")
 
+def show_cloud_database_error(action, exc):
+    error_text = str(exc)
+    if "42501" in error_text or "permission denied" in error_text.lower():
+        st.sidebar.error(f"Cloud {action} blocked by Supabase permissions (42501). Check the scenarios table grants and RLS policies. See the Supabase setup SQL in README.md.")
+    else:
+        st.sidebar.error(f"Cloud {action} failed: {error_text}")
+
 supabase_url, supabase_anon_key = get_supabase_config()
 cloud_ready = bool(supabase_url and supabase_anon_key)
 
@@ -433,14 +440,14 @@ else:
                         }).execute()
                         st.sidebar.success("Scenario saved to your cloud account.")
                     except Exception as exc:
-                        st.sidebar.error(f"Cloud save failed: {exc}")
+                        show_cloud_database_error("save", exc)
 
             if st.sidebar.button("☁️ Refresh cloud scenarios", use_container_width=True):
                 try:
                     cloud_result = supabase_client.table("scenarios").select("id,name,domain,inputs,created_at").eq("user_id", cloud_user.id).eq("domain", domain).order("created_at", desc=True).execute()
                     st.session_state["nexora_cloud_scenarios"] = cloud_result.data or []
                 except Exception as exc:
-                    st.sidebar.error(f"Could not fetch cloud scenarios: {exc}")
+                    show_cloud_database_error("scenario loading", exc)
 
             cloud_items = st.session_state.get("nexora_cloud_scenarios", [])
             if cloud_items:
